@@ -1,0 +1,68 @@
+import win.ui;
+import console;
+import time.timer;
+import win.timer;
+import winhttp;
+import inet.whttp;
+/*DSG{{*/
+winform = win.form(text="aardio form";right=636;bottom=379)
+winform.add(
+button={cls="button";text="发送异步请求";left=366;top=281;right=579;bottom=357;bgcolor=15780518;z=1};
+button2={cls="button";text="发送同步请求";left=45;top=279;right=269;bottom=357;bgcolor=12639424;z=2};
+edit={cls="edit";left=18;top=104;right=622;bottom=255;autohscroll=false;edge=1;multiline=1;readonly=1;z=3};
+groupbox={cls="groupbox";text="切换请求地址";left=18;top=9;right=621;bottom=83;edge=1;z=4};
+radiobutton={cls="radiobutton";text="https://www.aardio.com/";left=72;top=37;right=257;bottom=60;checked=1;z=5};
+radiobutton2={cls="radiobutton";text="http://eu.httpbin.org/get";left=363;top=38;right=547;bottom=60;z=6};
+static={cls="static";text="...........";left=287;top=302;right=623;bottom=333;center=1;nWrap=1;transparent=1;z=7}
+)
+/*}}*/
+
+winform.show();
+
+//异步请求使用了线程命令、线程消息和定时器，所以普遍比同步请求用时多30-100ms。
+//如果需要更快的响应速度，在能保证网络正常时候建议你使用同步请求。
+
+var url = "https://www.aardio.com/"
+
+winform.radiobutton.oncommand = function(id,event){
+	url = "https://www.aardio.com/"
+}
+
+winform.radiobutton2.oncommand = function(id,event){
+	url = "http://eu.httpbin.org/get"
+}
+
+var httpAsync = winhttp();
+var http = inet.whttp();//标准库
+
+winform.edit.log("点击下方按钮发送请求",'\r\n')
+
+var timer = win.timer( winform );
+timer.onTimer = function(hwnd,msg,id,tick){
+	winform.static.text = time.tick();
+} 
+timer.enable();
+
+winform.button.oncommand = function(id,event){
+	winform.edit.log('\r\n发送异步请求', '\r\n');
+	time.timer.start("async")
+	httpAsync.get(url).then(function(request){
+		return request.buffer();
+	}).then(function(data){
+		winform.edit.log('数据大小：',#data,'\r\n用时：',time.timer.endTick("async"),'\r\n')
+	}).catch(function(err){
+		winform.edit.log('\r\n错误信息', err, '\r\n');
+	})
+}
+
+winform.button2.oncommand = function(id,event){
+	winform.edit.log('\r\n发送同步请求', '\r\n');
+	time.timer.start("await")
+	var data = http.get(url)
+	winform.edit.log('数据大小：',#data,'\r\n');
+	winform.edit.log('用时：',time.timer.endTick("await"),'\r\n')
+}
+
+
+
+win.loopMessage();

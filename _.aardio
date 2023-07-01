@@ -1,0 +1,688 @@
+﻿import web;
+import web.json;
+import inet.url;
+import raw.struct;
+import promise;
+import thread.command;
+
+var listener = ..thread.command();
+var requestList = {};
+listener.statusCallback = function(hInternet, dwContext, ...){
+	//..console.log("***************", hInternet, dwContext, ...);
+	if(requestList[hInternet] && requestList[hInternet].statusCallback){
+		requestList[hInternet].statusCallback( hInternet, dwContext, ...);
+	}
+}
+
+var setStatusCallback = function(hwnd, handle){
+    import win; 
+    import thread.command;
+
+    ::WinHttp := ..raw.loadDll("winhttp.dll");
+    ..WinHttpSetStatusCallback = ::WinHttp.api("WinHttpSetStatusCallback","ptr(POINTER,ptr,INT,ptr)");
+    
+    ..requestCallback = ..raw.tostdcall(function(...){
+		..thread.command.post(hwnd, "statusCallback", ...);
+	},"void(pointer,pointer,INT,pointer,INT)");
+    ..WinHttpSetStatusCallback( handle, ..requestCallback, 0xffffffff, null);
+    //..thread.command.$initStatusCallback(handle);
+    ..thread.command.post(hwnd, "initStatusCallback", handle);
+    win.loopMessage(
+    	function(msg){
+    	    //
+    	} 
+    )
+}
+
+var callback = function(...){
+	var p;
+	p = {
+		listener = {};
+		success = function(...){
+			for(k,v in p.listener){
+				v.success(...)
+			}
+			
+		}
+		fail = function(...){
+			for(k,v in p.listener){
+				v.fail(...)
+			}
+		}
+		once = function(success, fail){
+			p.on(success, fail, true);
+		}
+		on = function(success, fail, once){
+			var i;
+			var l = {
+				success = function(...){
+					if(once){
+						p.listener[i] = null;
+					}
+					if(type(success) == type.function){
+						success(...);
+					}
+				}
+				
+				fail = function(...){
+					if(once){
+						p.listener[i] = null;
+					}
+					if(type(fail) == type.function){
+						fail(...);
+					}
+				}
+			}
+			i = ..table.push(p.listener,l);
+		}
+		
+	}
+	return p;
+}
+
+var mergeConfig = function(config1, config2){
+	if(!config1){
+		return config2; 
+	}
+ 	return ..table.mix(config2 : {}, config1 : {});
+}
+
+var toUnicode = ..string.toUnicode;
+
+::WinHttp := ..raw.loadDll("winhttp.dll");
+
+var WinHttpCloseHandle = ::WinHttp.api("WinHttpCloseHandle","bool(POINTER innet)")
+var WinHttpOpen = ::WinHttp.api("WinHttpOpen","pointer(ustring agent, int dwAccessType,ustring proxy,ustring byPass,int flags)" )
+var WinHttpConnect = ::WinHttp.api("WinHttpConnect","pointer(POINTER innet,ustring serverName,WORD port,INT reserved)")
+var WinHttpOpenRequest = ::WinHttp.api("WinHttpOpenRequest","pointer(POINTER conn,ustring verb,ustring objectName,ustring version,ustring referrer,struct acceptTypes,INT flags )")
+var WinHttpSendRequest = ::WinHttp.api("WinHttpSendRequest","int(POINTER request,ustring headers,INT headersLength,pointer optional,INT optionalLength,INT totalLength,ptr context)")
+var WinHttpReceiveResponse= ::WinHttp.api("WinHttpReceiveResponse","int(POINTER request,pointer reserved)" );
+	
+var WinHttpAddRequestHeaders  = ::WinHttp.api("WinHttpAddRequestHeaders","bool(POINTER request,ustring headers,INT len,INT modifiers)")
+var WinHttpQueryHeaders  = ::WinHttp.api("WinHttpQueryHeaders","int(POINTER request, INT infoLevel,pointer name,pointer& buffer,INT &bufferLength, INT & index)")
+var	QueryHeadersByString  = ::WinHttp.api("WinHttpQueryHeaders","int(POINTER request, INT infoLevel,ustring name,ustring& buffer,INT &bufferLength, INT & index)")
+var	QueryHeadersByInt  = ::WinHttp.api("WinHttpQueryHeaders","int(POINTER request, INT infoLevel,ustring name,int& buffer,INT &bufferLength, INT & index)")
+
+
+var WinHttpReadData  = ::WinHttp.api("WinHttpReadData","bool(POINTER file,pointer buffer,INT len,INT &readLen)")
+var WinHttpQueryDataAvailable  =  ::WinHttp.api("WinHttpQueryDataAvailable","bool(POINTER hFile, ptr &)")
+var WinHttpWriteData  = ::WinHttp.api("WinHttpWriteData","bool(POINTER hRequest,string buffer, INT bytesToWrite, ptr &)") 
+var WinHttpQueryOption =  ::WinHttp.api("WinHttpQueryOption","bool(POINTER hInternet,INT option,struct &buffer,INT &length)")  
+
+var WinHttpQueryAuthSchemes =  ::WinHttp.api("WinHttpQueryAuthSchemes","bool(POINTER hRequest, INT &supportedSchemes,INT &firstScheme,INT &authTarget)") 
+var WinHttpSetCredentials =  ::WinHttp.api("WinHttpSetCredentials","bool(POINTERT hRequest,INT AuthTargets,INT AuthScheme,ustring userName,ustring password,pointer pAuthParams)") 
+
+var WinHttpSetStatusCallback = ::WinHttp.api("WinHttpSetStatusCallback","ptr(POINTER,ptr,INT,ptr)");
+
+
+class winhttp{
+	ctor( agent, proxy, proxyBypass, flags ){
+		if( flags === null ) flags = 0;
+    	if( proxy === null ) proxy = "";
+    	if( proxy === "" ) {
+    		proxy = ..thread.get("inet.whttp.proxyList");
+    		proxyBypass = ..thread.get("inet.whttp.proxyByPassList");
+    		if( proxy === null ) proxy = "";
+    	}
+    	
+		if( proxyBypass === null ) proxyBypass = "";
+		if( agent === null ) agent = "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/61.0.3163.100 Safari/537.36";
+		
+    	var accessType = 0/*_WINHTTP_ACCESS_TYPE_DEFAULT_PROXY*/;
+	    if( !proxy ){
+	    	accessType = 1/*_WINHTTP_ACCESS_TYPE_NO_PROXY*/;
+	    	proxy = null;
+	    }
+	    elseif( (type(proxy) == "string") && #proxy){
+	    	accessType = 3/*WINHTTP_ACCESS_TYPE_NAMED_PROXY*/;
+	    	if( proxy == "IE" ){
+	    		proxy = ..thread.get("inet.proxyList");
+				proxyBypass = ..thread.get("inet.proxyByPassList");
+	
+				if( !proxy ){
+					if( proxy !== null ){
+						accessType = 1/*_WINHTTP_ACCESS_TYPE_NO_PROXY*/;
+						proxy = null;
+					}
+					else{
+	    				var cfg =  {
+  							bool autoDetect;
+  							ustring autoConfigUrl;
+  							ustring proxy;
+  							ustring proxyBypass;
+						}
+						if( ::WinHttp.WinHttpGetIEProxyConfigForCurrentUser(cfg) ){
+							if(#cfg.proxy){
+								proxy = cfg.proxy; proxyBypass = cfg.proxyBypass; 
+							}
+							else {
+								accessType = 0x1/*_WINHTTP_ACCESS_TYPE_NO_PROXY*/
+							} 
+						} 
+					}
+				}
+	    	}
+	    } 
+	    else {
+			proxy = null;
+		}
+		
+		var session,err = Session(agent,accessType,proxy,proxyBypass,flags);
+		if(!session){
+			return null,err;
+		}
+		
+		this.session = session;
+		
+		this.lock = ..promise(function(resolve,reject){
+		    this.unlock = resolve;
+		});
+		
+		this.initStatusCallback = function(handle){
+			if(handle == this.session.handle){
+				listener.unsubscribe("initStatusCallback", function(v, k){
+					return k == this.session.handle;
+				});
+				this.unlock();
+				return true;
+			}
+		}
+		
+		listener.subscribe("initStatusCallback", this.initStatusCallback);
+		
+		var thrdHandle, thrdId = ..thread.create(setStatusCallback, listener.hwnd, this.session.handle);
+		if(!thrdHandle){
+			this.session.CloseHandle();
+			return null;
+		}
+		this.statusCallbackHandle = thrdHandle;
+		this.statusCallbackId = thrdId;
+		..table.gc(this,"close");
+	};
+	
+	setProxyAuth = function(user,pwd){ 
+		this.proxyUsername = user;
+		this.proxyPassword = pwd;
+	};
+	
+	islocking = function(){
+		return this.lock.status === "pending";
+	}
+	
+	request = function(configOrUrl, config){
+		return ..promise(function(resolve,reject){
+			if(!this.session){
+				return reject();
+			}
+			
+			if ( type(configOrUrl) === type.string ) {
+      			config = config || {};
+      			config.url = configOrUrl;
+    		} else {
+      			config = configOrUrl || {};
+    		}
+    		
+    		config = mergeConfig(this.config, config);
+    		
+    		if(config.params){
+    			config.url = ..inet.url.appendExtraInfo(config.url, config.params);
+    		}
+    		
+    		var tUrl = ..inet.url.split(config.url);
+    		if(!tUrl.host) return reject("请求地址错误");
+			var method = ..string.upper(config.method : "GET");
+    		var headers = ..web.joinHeaders(config.headers); 
+    		var referer = config.referer : ..inet.url.joinpath(config.url,"/");
+    		var accept = config.accept;
+    		var data = config.data;
+    		var totalLength = config.totalLength : #data;
+    		
+    		if( type(data) == type.table ){
+				data = ..inet.url.stringifyParameters(data);
+			}
+			if( (method == "POST") && data && !( headers  &&  ..string.find( headers,"@@Content-Type:") ) ){  
+				headers = ..web.joinHeaders( headers
+		    		, ( data[1]=='{'# or  data[1]=='['#) 
+		    		? 'Content-Type: application/json; charset=utf-8' : 'Content-Type: application/x-www-form-urlencoded; charset=utf-8'
+		    		);
+			}
+    		var lplpszAcceptTypes = {};
+	    	if(accept){
+	    		var tAccept = ..string.split(accept,",");
+	    		for(k,v in tAccept){
+	    		 	tAccept[k] = toUnicode(v);
+	    		} 
+	    		lplpszAcceptTypes = ..raw.toarray( #tAccept+1,"pointer","array" );
+	    		lplpszAcceptTypes.array = tAccept;
+	    	}
+    		var flags = 0;
+	    	if( tUrl.schemeNum == 0x4/*_INTERNET_SCHEME_HTTPS*/)
+	    		flags |=  0x800000 /*_WINHTTP_FLAG_SECURE*/;
+			
+		    this.lock = this.lock.finally(function(){
+			 	return ..promise(function(unlock){
+			 		try{
+	    				var connect,err = Connect( this.session, toUnicode(tUrl.host), tUrl.port, 0 );
+						if(!connect){
+							reject(err);
+							unlock();
+							return;
+						}
+						//当 connect 关闭后解锁自动进行下一个请求
+						connect.onHandleClosed.once(unlock);
+						
+						var request,err = Request(connect, toUnicode(method), toUnicode(..string.concat(tUrl.path ,tUrl.extraInfo)), null, toUnicode(referer), lplpszAcceptTypes, flags);
+						if(!request){
+							connect.CloseHandle().finally(function(){
+						 		reject(err);
+							})
+							return;
+						}
+						
+						this.Hrequest = request;
+						
+						var proxyName = this.proxyUsername : ..thread.get("inet.proxyUsername");
+	    				if(proxyName){
+	    					proxyName = toUnicode(proxyName);
+	    	 				::WinHttp.WinHttpSetOption(request,0x1002/*_WINHTTP_OPTION_PROXY_USERNAME*/,proxyName,#proxyName);
+	    	 				
+	    					var proxyPassword = this.proxyPassword : ..thread.get("inet.proxyPassword")
+							if(proxyPassword){
+								proxyPassword = toUnicode(proxyPassword);
+				 				::WinHttp.WinHttpSetOption(request,0x1003/*_WINHTTP_OPTION_PROXY_PASSWORD*/,proxyPassword,#proxyPassword);
+							} 
+						}
+						
+						requestList[request.handle] = request;
+						requestList[connect.handle] = connect;
+						
+						request.onError.on(function(err){
+							select(err.dwError) {
+								case 12002 {
+									//请求超时
+									request.CloseHandle();
+								}
+							}
+						})
+						
+						request.SendRequest(headers, data, #data, totalLength).then(function(){
+							resolve(request);
+						},function(err){
+							request.CloseHandle().finally(function(){
+								reject(err);
+							})
+						})
+					}
+			 		catch(err){
+			 			reject(err);
+			 			unlock();
+			 		}
+				});
+			})
+		})
+	}
+	
+	get = function(url, config){
+		return this.request( mergeConfig(config,{
+			method = "get";
+			url = url;
+		}));
+	}
+	
+	post = function(url, data, config){
+		return this.request( mergeConfig(config,{
+			method = "post";
+			url = url;
+			data = data;
+		}));
+	}
+	
+	close = function(){
+		if(this.request){
+			this.Hrequest.CloseHandle();
+		}
+		if(this.session){
+			var ok = this.session.CloseHandle();
+		}
+		if(this.statusCallbackId){
+			::PostThreadMessage(this.statusCallbackId, 0x12/*_WM_QUIT*/, 0, 0);
+		}
+	}
+	
+}
+
+
+namespace winhttp{
+	
+	class Session{
+		ctor( agent,accessType,proxy,proxyBypass,flags = 0 ){
+			this.handle = WinHttpOpen(agent,accessType,proxy,proxyBypass,flags | 0x10000000);
+			if(!this.handle) return null,..lasterr();
+		};
+		
+		CloseHandle = function(){
+			return WinHttpCloseHandle(this);
+		}
+		
+		setOption = function(...){
+			return ::WinHttp.WinHttpSetOption(this,...); 
+		}
+		
+		setTimeouts = function(...){
+			return ::WinHttp.WinHttpSetTimeouts(this,...)
+		};
+		
+		@{
+			_topointer = function(){
+				return owner.handle;
+			};
+		}
+		
+	}
+	
+	class Connect{
+		ctor( ... ){ 
+			this.handle = WinHttpConnect( ... );
+			if(!this.handle) return null,..lasterr();
+		};
+		
+		statusCallback = function(hInternet, dwContext, dwInternetStatus, lpvStatusInformation, dwStatusInformationLength){
+			select(dwInternetStatus) {
+				case 0x00000800 {
+					this.onHandleClosed.success();
+				}
+			}
+		}
+		
+		onHandleClosed = callback();
+		
+		CloseHandle = function(){
+			return ..promise(function(resolve,reject){
+				this.onHandleClosed.once(function(){
+					requestList[this.handle] = null;
+					resolve();
+				}, reject);
+				WinHttpCloseHandle(this);
+			})
+		}
+		
+		@{
+			_topointer = function(){
+				return owner.handle;
+			};
+		}
+
+	}
+	
+	class Request{
+		ctor( connect, ... ){
+			this.handle = WinHttpOpenRequest(connect, ...);
+			if(!this.handle) return null,..lasterr();
+			this.connect = connect;
+			..table.gc(this,"CloseHandle");
+		};
+		
+		statusCallback = function(hInternet, dwContext, dwInternetStatus, lpvStatusInformation, dwStatusInformationLength){
+			select(dwInternetStatus) {
+				case 0x00000800 {
+					this.onHandleClosed.success();
+				}
+				
+				case 0x00020000 {
+					this.onReceiveResponse.success();
+				}
+				
+				case 0x00040000 {
+					this.onQueryDataAvailable.success(lpvStatusInformation);
+				}
+				
+				case 0x00080000 {
+					this.onReadData.success({pointer: lpvStatusInformation, size: dwStatusInformationLength});
+				}
+				
+				case 0x00100000 {
+					this.onWriteData.success(lpvStatusInformation);
+				}
+				
+				case 0x00200000 {
+					var err = ..raw.struct({ADDR dwResult,INT dwError}, lpvStatusInformation );
+					
+					this.onError.success(err);
+					
+					select(err.dwResult) {
+						case 1 {
+							this.onReceiveResponse.fail(err.dwError);
+						}
+						case 2 {
+							this.onQueryDataAvailable.fail(err.dwError);
+						}
+						case 3 {
+							this.onReadData.fail(err.dwError);
+						}
+						case 4 {
+							this.onWriteData.fail(err.dwError);
+						}
+						case 5 {
+							this.onSendRequest.fail(err.dwError);
+						}
+						case 6 {
+							//this.onGetProxyForUrlEx.fail(result.dwError);
+						}
+						else {
+							
+						}
+					}
+					
+					
+				}
+				case 0x00400000 {
+					this.onSendRequest.success();
+					
+				}
+			}
+		}
+		
+		onHandleClosed = callback();
+		onReceiveResponse = callback();
+		onQueryDataAvailable = callback();
+		onReadData = callback();
+		onWriteData = callback();
+		onSendRequest = callback();
+		onError = callback();
+		
+		QueryDataAvailable = function(){
+			return ..promise(function(resolve,reject){
+				this.onQueryDataAvailable.once(function(lpvStatusInformation){
+					var size = ..raw.struct({INT size}, lpvStatusInformation ).size;
+					resolve(size);
+				}, reject);
+				var ok = WinHttpQueryDataAvailable(this, null);
+				if(!ok)reject(..lasterr());
+			})
+		}
+		
+		ReadData = function(buf, size){
+			return ..promise(function(resolve,reject){
+				this.onReadData.once(resolve, reject);
+				var ok = WinHttpReadData(this, buf, size, 0);
+				if(!ok)reject(..lasterr());
+			})
+		}
+		
+		SendRequest = function(headers, data, size, totalLength){
+			return ..promise(function(resolve, reject){
+				this.onSendRequest.once(resolve, reject);
+				size := #data;
+				totalLength := size;
+				this.isReceiveResponse = false;
+				var ok = WinHttpSendRequest(this, headers, headers?-1:0, data, size, totalLength, this);
+				if(!ok)reject(..lasterr());
+			})
+		}
+		
+		ReceiveResponse = function(){
+			return ..promise(function(resolve,reject){
+				if(this.isReceiveResponse){
+					resolve();
+				}
+				this.onReceiveResponse.once(function(){
+					this.isReceiveResponse = true;
+					resolve()
+				},reject);
+				var ok = WinHttpReceiveResponse(this);
+				if(!ok)reject(..lasterr());
+			})
+		}
+		
+		WriteData = function(data){
+			return ..promise(function(resolve,reject){
+				this.onWriteData.once(resolve,reject);
+				var ok = WinHttpWriteData(this, data, #data, null);
+				if(!ok)reject(..lasterr());
+			})
+		}
+		
+		CloseHandle = function(){
+			return ..promise(function(resolve,reject){
+				if(!this.handle){
+					return resolve();
+				}
+				this.onHandleClosed.once(function(){
+					requestList[this.handle] = null;
+					this.handle = null;
+					this.connect.CloseHandle().finally(resolve);
+					this.connect = null;
+				}, reject);
+				WinHttpCloseHandle(this);
+			})
+		}
+		
+		AddRequestHeaders = function(...){
+			return WinHttpAddRequestHeaders(this,...);
+		}
+				
+		QueryAuthSchemes = function(lpdwSupportedSchemes=0,lpdwFirstScheme=0,pdwAuthTarget=0){
+			return WinHttpQueryAuthSchemes(this,lpdwSupportedSchemes,lpdwFirstScheme,pdwAuthTarget);
+		}
+		
+		SetCredentials = function(...){
+			return WinHttpSetCredentials(this,...);
+		}
+		
+		QueryHeaders = function(dwInfoLevel,pwszName,pwszName,lpdwBufferLength,lpdwIndex){
+			return WinHttpQueryHeaders(this,dwInfoLevel,pwszName,pwszName,lpdwBufferLength,lpdwIndex);
+		}
+		
+		SetOption = function(...){
+			return ::WinHttp.WinHttpSetOption(this,...); 
+		}
+		
+		SetTimeouts = function(...){
+			return ::WinHttp.WinHttpSetTimeouts(this,...)
+		};
+		
+		//
+		
+		queryNumber = function(flag=0){
+			var ok,num = QueryHeadersByInt( this,0x20000000 /*_HTTP_QUERY_FLAG_NUMBER*/ | flag,null,0,4,0)
+			if(ok)return num;
+		};
+		
+		setAuth = function(user,pwd){
+			var ok,schemes,firstScheme,target = this.QueryAuthSchemes();
+ 			if( ok && firstScheme ){
+ 				return this.SetCredentials( target,firstScheme,  toUnicode(user),  toUnicode(pwd) );
+ 			}
+ 			else {
+ 				return this.SetCredentials( target,1/*_WINHTTP_AUTH_SCHEME_BASIC*/,  toUnicode(user),  toUnicode(pwd) );
+ 			}
+		};
+		
+		text = function(){
+			return this.buffer().then(function(buffer){
+				return ..raw.str(buffer);
+			}); 
+		}
+		
+		json = function(){
+			return this.text().then(function(text){
+				return ..web.json.parse(text);
+			});
+		}
+		
+		buffer = function(bufferSize = 0x20000){
+			return ..promise(function(resolve,reject){
+				this.ReceiveResponse().then(function(){
+					var ptr = ..raw.realloc(bufferSize)
+					var totalSize = 0;
+					
+					var read;
+					read = function(){
+						this.ReadData(topointer(ptr, totalSize), bufferSize).then(function(o){
+							if(o.size > 0){
+								totalSize += o.size;
+								ptr = ..raw.realloc(totalSize + bufferSize, ptr);
+								read();
+							}else {
+								var lastResponseData = ..raw.buffer(totalSize,ptr);
+								ptr = ..raw.realloc(0, ptr);
+								this.CloseHandle();
+								resolve(lastResponseData);
+							}
+						}, reject)
+					}
+					read();
+				}, reject)
+			})
+		}
+		
+
+		@{
+			_topointer = function(){
+				return owner.handle;
+			};
+		}
+	}
+	
+	
+}
+
+
+/*
+
+  微软官方：
+  
+  我们强烈建议您在异步模式下使用 WinHTTP（即，在 WinHttpOpen 中设置WINHTTP_FLAG_ASYNC时，以便返回的 HINTERNET 的使用变得异步）。
+
+  WINHTTP_STATUS_CALLBACK函数必须立即返回。编写这些回调函数之一时，请注意它不会阻塞。
+例如，回调及其调用的任何函数都不应显示用户对话框或等待事件。
+如果WINHTTP_STATUS_CALLBACK函数确实阻塞，则会影响 WinHTTP 的内部调度，并导致同一进程中的其他请求被拒绝服务。
+
+  WINHTTP_STATUS_CALLBACK函数必须是可重入的。编写回调时，请避免使用静态变量或其他在 reentry 下不安全的构造，并避免调用其他不可重入的函数。
+
+  应同步对 WinHTTP 请求句柄的操作。例如，应用程序应避免在一个线程发送或接收请求时关闭另一个线程上的请求句柄。
+要终止异步请求，请在回调通知期间关闭请求句柄。若要终止同步请求，请在上一个 WinHTTP 调用返回时关闭句柄。
+
+  WinHTTP 不是可重入的，除非在异步完成回调期间。也就是说，当线程有一个挂起的 WinHTTP 函数之一
+（如 WinHttpSendRequest、WinHttpReceiveResponse、WinHttpQueryDataAvailable、WinHttpSendData 或 WinHttpWriteData）的调用时，
+在第一次调用完成之前，它绝不能再次调用 WinHTTP。
+
+  可能发生第二次调用的一种情况如下：如果应用程序将异步过程调用 （APC） 排队到调用 WinHTTP 的线程，
+并且 WinHTTP 在内部执行可警报等待，则 APC 可以运行。如果APC例程碰巧也调用WinHTTP，它将重新进入WinHTTP API，并且WinHTTP的内部状态可能会损坏。
+
+  ChatGPT：
+  
+  WinHTTP（Windows HTTP Services）是一种用于在Windows操作系统上进行HTTP通信的API。
+根据WinHTTP的设计，每个WinHTTP会话一次只能发送一个请求。
+这意味着在同一个会话中，您必须等待一个请求完成（收到响应或发生错误）后才能发送下一个请求。
+
+  如果您需要在一个会话中发送多个请求，您可以创建多个WinHTTP会话并同时进行操作。
+通过创建多个会话，您可以在一个请求等待响应时，发送另一个请求。每个会话都是独立的，它们之间不会相互干扰。
+
+  Runy：
+    
+  本以为 WinHTTP 异步请求实现起来很简单，不需要多线程，可并发。直到踩了无数坑翻遍了官方文档才发行这是不可能的！[苦笑]
+  
+  - [GitHub](https://github.com/aardiolib/winhttp)
+  - [官方文档](https://learn.microsoft.com/en-us/windows/win32/api/winhttp/)
+*/

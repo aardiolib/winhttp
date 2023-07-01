@@ -1,0 +1,46 @@
+﻿import win.ui;
+import console;
+import time.timer;
+import winhttp;
+import web.json;
+/*DSG{{*/
+winform = win.form(text="aardio form";right=636;bottom=379)
+winform.add()
+/*}}*/
+
+console.open();
+winform.show();
+
+var await = promise.await;
+
+var http = winhttp();
+
+//生成上传数据
+var data = "name=123&data="
+var content = ..string.random(100);
+
+http.post("http://eu.httpbin.org/post",data,{
+	totalLength = #data + #content; //设置上传数据的总长度
+}).then(function(request){
+	
+	//上传数据
+	await(request.WriteData(content));
+	
+	//停止上传等待返回
+	await(request.ReceiveResponse());
+	
+	//获取资源的大小
+	var len = await(request.queryNumber(5));
+	var buf = raw.buffer(len);
+	
+	//下载资源
+	await(request.ReadData( buf,len ));
+	
+	..console.log(buf);
+	
+}).catch(function(err){
+	..console.log("错误信息", err);
+})
+
+..console.log("请求已发送");
+win.loopMessage();

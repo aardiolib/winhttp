@@ -1,0 +1,34 @@
+import win.ui;
+import console;
+import time.timer;
+import winhttp;
+/*DSG{{*/
+winform = win.form(text="aardio form";right=636;bottom=379)
+winform.add()
+/*}}*/
+
+
+winform.show();
+console.open();
+
+var url = "http://httpbin.org/digest-auth/auth/user/passwd"
+
+var http = winhttp();
+var await = promise.await;
+http.get(url).then(function(request){
+	await(request.ReceiveResponse());
+	var code = request.queryNumber(19);
+	if(code == 401){
+		request.setAuth("user","passwd");
+		return request.SendRequest().then(function(){
+			return request.text();
+		})
+	}
+	return request.text();
+}).then(function(data){
+	..console.log(data);
+}).catch(function(err){
+	..console.log("错误信息", err);
+})
+
+win.loopMessage();

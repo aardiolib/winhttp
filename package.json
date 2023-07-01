@@ -1,0 +1,16 @@
+{
+  "name": "@aardiolib/winhttp",
+  "version": "1.0.0",
+  "description": "winhttp",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "keywords": [
+    "aardio",
+    "winhttp",
+    "aardiolib"
+  ],
+  "author": "Runy(2439702727@qq.com)",
+  "license": "ISC"
+}
